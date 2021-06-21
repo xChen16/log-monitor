@@ -51,7 +51,7 @@ func NewReader(path string) (Reader, error) {
 	}, nil
 }
 
-// 讀取模塊
+// 读取
 func (r *ReadFromTail) Read(rc chan []byte) {
 	defer close(rc)
 	var stat syscall.Stat_t
@@ -63,15 +63,15 @@ func (r *ReadFromTail) Read(rc chan []byte) {
 		line, err := bf.ReadBytes('\n')
 		if err == io.EOF {
 			if err := syscall.Stat(r.path, &stat); err != nil {
-				// 文件切割, 但是新文件還沒生成
+				// 新文件未生成
 				time.Sleep(1 * time.Second)
 			} else {
 				nowInode := stat.Ino
 				if nowInode == r.inode {
-					// 無新的數據產生
+					// 无新数据
 					time.Sleep(1 * time.Second)
 				} else {
-					// 文件切割, 重新開啟檔案
+
 					r.fd.Close()
 					fd, err := os.Open(r.path)
 					if err != nil {
@@ -116,13 +116,13 @@ type Message struct {
 	UpstreamTime, RequestTime    float64
 }
 
-// 系統狀態監控
+// 系统监控
 type SystemInfo struct {
-	HandleLine   int       `json:"handleLine"`   // 總處理log行數
-	Tps          float64   `json:"tps"`          // 系統吞吐量
-	ReadChanLen  int       `json:"readChanLen"`  // read channel 長度
-	WriteChanLen int       `json:"writeChanLen"` // write channel 長度
-	RunTime      string    `json:"runTime"`      // 總運行時間
+	HandleLine   int       `json:"handleLine"`   // log行数
+	Tps          float64   `json:"tps"`          // 吞吐量
+	ReadChanLen  int       `json:"readChanLen"`  // read channel
+	WriteChanLen int       `json:"writeChanLen"` // write channel
+	RunTime      string    `json:"runTime"`
 	ErrInfo      ErrorInfo `json:"errInfo"`
 }
 
@@ -192,7 +192,6 @@ func (m *Monitor) systemStatus(lp *LogProcess) string {
 	m.systemInfo.ReadChanLen = len(lp.rc)
 	m.systemInfo.WriteChanLen = len(lp.wc)
 	if len(m.tpsSli) >= 2 {
-		// return math.Trunc(float64(m.tpsSli[1]-m.tpsSli[0])/5*1e3+0.5) * 1e-3
 		m.systemInfo.Tps = float64(m.tpsSli[1]-m.tpsSli[0]) / 5
 	}
 	res, _ := json.MarshalIndent(m.systemInfo, "", "\t")
@@ -203,8 +202,6 @@ type InfluxConf struct {
 	Addr, Token, Organization, Bucket, Measurement, Precision string
 }
 type WriteToInfluxDB struct {
-	// batch      uint16
-	// retry      uint8 // 寫入失敗時使用, influx2似乎沒有回傳錯誤
 	influxConf *InfluxConf
 }
 
@@ -215,8 +212,7 @@ func NewWriter(influxDsn string, token string) (Writer, error) {
 		return nil, errors.New("param influxDns err")
 	}
 	return &WriteToInfluxDB{
-		// batch: 50,
-		// retry: 3,
+
 		influxConf: &InfluxConf{
 			Addr:         influxDsnSli[0],
 			Organization: influxDsnSli[1],
@@ -228,18 +224,15 @@ func NewWriter(influxDsn string, token string) (Writer, error) {
 	}, nil
 }
 
-// 寫入模塊
+// 写入
 func (w *WriteToInfluxDB) Write(wc chan *Message) {
 	client := influxdb2.NewClient(w.influxConf.Addr, w.influxConf.Token)
 
-	// always close client at the end
+	//close client
 	defer client.Close()
 	client.Options()
 	writeAPI := client.WriteAPI(w.influxConf.Organization, w.influxConf.Bucket)
-
-	// write channel 中讀取監控數據
 	for v := range wc {
-		// 構造數據並寫入influxdb
 		// Tags: Path, Method, Scheme, Status
 		tags := map[string]string{
 			"Path":   v.Path,
@@ -247,21 +240,18 @@ func (w *WriteToInfluxDB) Write(wc chan *Message) {
 			"Scheme": v.Scheme,
 			"Status": v.Status,
 		}
-
 		// Fields: UpstreamTime, RequestTime, BytesSent
 		fields := map[string]interface{}{
 			"UpstreamTime": v.UpstreamTime,
 			"RequestTime":  v.RequestTime,
 			"BytesSent":    v.BytesSent,
 		}
-
 		// Write the batch
 		p := influxdb2.NewPoint(
 			w.influxConf.Measurement,
 			tags,
 			fields,
 			v.TimeLocal)
-
 		// write point asynchronously
 		writeAPI.WritePoint(p)
 
@@ -270,19 +260,16 @@ func (w *WriteToInfluxDB) Write(wc chan *Message) {
 
 }
 
-// 解析模塊
+// 解析
 func (l *LogProcess) Process() {
 	/**
 	172.0.0.12 - - [04/Mar/2018:13:49:52 +0000] http "GET /foo?query=t HTTP/1.0" 200 2133 "-" "KeepAliveClient" "-" 1.005 1.854
 	*/
 
-	// 正規提取所需的監控數據(path, status, method 等)
 	r := regexp.MustCompile(`([\d\.]+)\s+([^ \[]+)\s+([^ \[]+)\s+\[([^\]]+)\]\s+([a-z]+)\s+\"([^"]+)\"\s+(\d{3})\s+(\d+)\s+\"([^"]+)\"\s+\"(.*?)\"\s+\"([\d\.-]+)\"\s+([\d\.-]+)\s+([\d\.-]+)`)
-
 	loc, _ := time.LoadLocation("Asia/Taipei")
-	// 從 read channel 中讀取每行日誌數據
 	for v := range l.rc {
-		// 第 0 項是數據本身
+		// 第0项是数据本身
 		TypeMonitorChan <- TypeHandleLine
 		ret := r.FindStringSubmatch(string(v))
 		if len(ret) != 14 {
@@ -335,7 +322,6 @@ func (l *LogProcess) Process() {
 		message.UpstreamTime = upstreamTime
 		message.RequestTime = requestTime
 
-		// 寫入 write channel
 		l.wc <- message
 	}
 }
@@ -375,7 +361,7 @@ func main() {
 		go lp.writer.Write(lp.wc)
 	}
 
-	// 監控模組
+	// 监控
 	m := &Monitor{
 		listenPort: listenPort,
 		startTime:  time.Now(),
@@ -389,7 +375,7 @@ func main() {
 		case syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT:
 			log.Println("capture exit signal:", s)
 			os.Exit(1)
-		case syscall.SIGUSR1: // 用戶自訂訊號
+		case syscall.SIGUSR1: // 用户自定信号
 			log.Println(m.systemStatus(lp))
 		default:
 			log.Println("capture other signal:", s)
