@@ -1,0 +1,26 @@
+version: '3'
+services:
+  influxdb:
+    container_name: influxdb
+    image: influxdb:2.0.7
+    ports:
+      - "8086:8086"
+    restart: always
+    # volumes:
+    #   - /data/influxdb:/var/lib/influxdb
+    # networks:
+    #   - grafana
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:7.5.7
+    user: root
+    ports:
+      - "3000:3000"
+    # volumes:
+    #   - /data/grafana:/var/lib/grafana
+    restart: always
+    # networks:
+    #   - grafana
+    depends_on:
+      - influxdb
